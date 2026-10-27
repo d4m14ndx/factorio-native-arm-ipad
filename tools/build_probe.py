@@ -89,7 +89,8 @@ def build_shim(app, uikit=False, sdk='iphonesimulator', sdl_major=2):
         sdl_name = 'libSDL2.dylib' if sdl_major == 2 else 'libSDL3.dylib'
         source = ROOT/'build/vendor'/('SDL-release-2.30.9' if sdl_major == 2 else 'SDL-release-3.4.14')
         command += [str(ROOT/'probe/UIKitEntry.m'),str(ROOT/'probe/MetalCompat.m'),
-                    str(ROOT/'probe/TouchControls.m'),'-I'+str(source/'include'),
+                    str(ROOT/'probe/TouchControls.m'),str(ROOT/'probe/TouchInput.m'),
+                    str(ROOT/'probe/TouchGestures.m'),'-I'+str(source/'include'),
                     f'-DORIGINAL_MAIN_OFFSET={main_offset}',f'-DFPI_SDL_MAJOR={sdl_major}',
                     '-framework','UIKit','-framework','GameController']
         if sdl_major == 3:
