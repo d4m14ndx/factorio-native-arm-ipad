@@ -92,6 +92,7 @@ def build_shim(app, uikit=False, sdk='iphonesimulator', sdl_major=2):
                     str(ROOT/'probe/TouchControls.m'),'-I'+str(source/'include'),
                     f'-DORIGINAL_MAIN_OFFSET={main_offset}',f'-DFPI_SDL_MAJOR={sdl_major}',
                     '-framework','UIKit','-framework','GameController']
+        command += [str(ROOT/'probe/FootprintLog.c'),str(ROOT/'probe/FilePages.c')]
         if sdl_major == 3:
             command += ['-I'+str(source/'include/SDL3')]
         sdl = frameworks/sdl_name

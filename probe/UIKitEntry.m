@@ -15,6 +15,8 @@ typedef int (*UIKitRunApp)(int, char **, MainFunction);
 #endif
 extern void PrepareMetalCompatibility(id<MTLDevice> device);
 extern void InstallTouchControls(void);
+extern void StartFootprintLog(void);
+extern void InstallFilePages(void);
 
 int ProbeMain(int argc, char **argv) {
     MainFunction original = (MainFunction)((char *)_dyld_get_image_header(0) + ORIGINAL_MAIN_OFFSET);
@@ -103,6 +105,8 @@ int ProbeMain(int argc, char **argv) {
         fprintf(stderr,"FACTORIO_PROBE: Metal device=%s mac1=%d apple7=%d apple3=%d\n",
                 device.name.UTF8String ?: "none", [device supportsFamily:MTLGPUFamilyMac1],
                 [device supportsFamily:MTLGPUFamilyApple7],[device supportsFamily:MTLGPUFamilyApple3]);
+        InstallFilePages();
+        StartFootprintLog();
         fprintf(stderr,"FACTORIO_PROBE: entering UIKit with original game main\n");
         // Portrait puts the game above a dedicated control deck (see TouchControls.m).
         setenv("SDL_IOS_ORIENTATIONS","LandscapeLeft LandscapeRight Portrait",0);
