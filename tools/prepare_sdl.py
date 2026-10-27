@@ -13,6 +13,34 @@ RELEASES = {
     3: ('3.4.14', '9d57b178fb297e121ef2605275937b7afaa7cd24d99ce1f95953e69e7a2535d6'),
 }
 
+def keep_sdl2_text_input(source):
+    """Factorio leaves text input on, as on a desktop, and the overlay keyboard
+    types through it. SDL 2 turns it off whenever iOS says its own keyboard is
+    hiding, even one that never showed; SDL 3 only resets the height. Do the same.
+    """
+    path = source/'src/video/uikit/SDL_uikitviewcontroller.m'
+    old_hide = '''    BOOL shouldStopTextInput = NO;
+
+    if (SDL_IsTextInputActive() && !showingKeyboard && !rotatingOrientation) {
+        shouldStopTextInput = YES;
+    }
+
+    hidingKeyboard = YES;
+    [self setKeyboardHeight:0];
+
+    if (shouldStopTextInput) {
+        SDL_StopTextInput();
+    }
+'''
+    new_hide = '''    hidingKeyboard = YES;
+    [self setKeyboardHeight:0];
+'''
+    text = path.read_text()
+    if text.count(old_hide) == 1:
+        path.write_text(text.replace(old_hide, new_hide, 1))
+    elif '- (void)keyboardWillHide:(NSNotification *)notification\n{\n'+new_hide+'}' not in text:
+        raise ValueError('Pinned SDL 2.30.9 UIKit keyboard hiding changed')
+
 def adapt_sdl3_scene_window(source):
     """Use the active UIWindowScene's bounds during the first SDL window setup.
 
@@ -221,6 +249,8 @@ def main():
     source=vendor/stem
     if not source.exists():
         with tarfile.open(archive) as tar: tar.extractall(vendor,filter='data')
+    if major == 2:
+        keep_sdl2_text_input(source)
     if major == 3:
         adapt_sdl3_scene_window(source)
     # Add the input adapter to SDL's target so it can call private event/state
