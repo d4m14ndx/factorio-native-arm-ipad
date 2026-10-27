@@ -60,6 +60,7 @@ static void FPRequestPointerLock(UIViewController *controller,BOOL lock) {
 }
 
 static BOOL FPLeftButtonArrives;
+static NSNotificationName const FPInputChanged=@"FPInputChanged";
 
 @interface FPInputButton : UIButton
 @property(nonatomic) int scan;
@@ -67,32 +68,40 @@ static BOOL FPLeftButtonArrives;
 @property(nonatomic) int wheel;
 @property(nonatomic) BOOL inputHeld;
 @property(nonatomic) BOOL latch;
+@property(nonatomic) BOOL withCommand; // Adds Cmd to its key, for Copy and Paste.
+@property(nonatomic) BOOL addedCommand;
 @property(nonatomic) BOOL standalone; // Draws its own disc instead of sitting on a shared pill.
 @property(nonatomic) BOOL captioned;  // Icon above a small title.
 @property(nonatomic,copy) NSString *text;
+- (NSString *)typedText;
 - (void)refreshAppearance;
 @end
 @implementation FPInputButton
+// What the key types with the current Shift and Caps Lock state.
+- (NSString *)typedText {
+    BOOL shift=(SDL_GetModState()&FPI_MOD_SHIFT)!=0;
+    BOOL caps=(SDL_GetModState()&FPI_MOD_CAPS)!=0;
+    NSString *text=(shift!=caps) ? self.text.uppercaseString : self.text;
+    if (shift && self.text.length==1) {
+        NSString *plain=@"`1234567890-=[]\\;',./";
+        NSString *shifted=@"~!@#$%^&*()_+{}|:\"<>?";
+        NSRange index=[plain rangeOfString:self.text];
+        if (index.location!=NSNotFound) text=[shifted substringWithRange:NSMakeRange(index.location,1)];
+    }
+    return text;
+}
 - (void)sendDown:(BOOL)down {
     if (self.inputHeld==down) return;
     self.inputHeld=down;
+    if (down && self.withCommand && !(SDL_GetModState()&FPI_MOD_GUI)) { self.addedCommand=YES; FPIKeyboard(SDL_SCANCODE_LGUI,1); }
     if (self.scan) FPIKeyboard(self.scan,down);
-    if (down && self.text && !(SDL_GetModState()&(FPI_MOD_CTRL|FPI_MOD_ALT|FPI_MOD_GUI))) {
-        BOOL shift=(SDL_GetModState()&FPI_MOD_SHIFT)!=0;
-        BOOL caps=(SDL_GetModState()&FPI_MOD_CAPS)!=0;
-        NSString *text=(shift!=caps) ? self.text.uppercaseString : self.text;
-        if (shift && self.text.length==1) {
-            NSString *plain=@"`1234567890-=[]\\;',./";
-            NSString *shifted=@"~!@#$%^&*()_+{}|:\"<>?";
-            NSRange index=[plain rangeOfString:self.text];
-            if (index.location!=NSNotFound) text=[shifted substringWithRange:NSMakeRange(index.location,1)];
-        }
-        FPIText(text.UTF8String);
-    }
+    if (!down && self.addedCommand) { self.addedCommand=NO; FPIKeyboard(SDL_SCANCODE_LGUI,0); }
+    if (down && self.text && !(SDL_GetModState()&(FPI_MOD_CTRL|FPI_MOD_ALT|FPI_MOD_GUI))) FPIText(self.typedText.UTF8String);
     if (self.mouseButton) FPIMouseButton(self.mouseButton,down);
     if (self.wheel && down) FPIWheel(self.wheel);
     if (down) [FPPressFeedback() impactOccurred];
     [self refreshAppearance];
+    [NSNotificationCenter.defaultCenter postNotificationName:FPInputChanged object:self];
 }
 - (void)down { [self sendDown:self.latch ? !self.inputHeld : YES]; }
 - (void)up { if (!self.latch) [self sendDown:NO]; }
@@ -259,7 +268,7 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self reset]; }
 @end
 
-@interface FPTouchOverlay : UIView
+@interface FPTouchOverlay : UIView <UITextFieldDelegate>
 @property(nonatomic,strong) NSMutableArray<FPInputButton *> *buttons;
 @property(nonatomic,strong) NSArray<FPInputButton *> *menuRail, *zoomPair, *modifierPair, *cluster;
 @property(nonatomic,strong) UIView *systemPill, *systemDivider, *menuPill, *zoomPill, *modifierPill, *deck;
@@ -276,7 +285,8 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
 @property(nonatomic,strong) FPJoystick *joystick;
 @property(nonatomic,strong) FPPointerSurface *pointerSurface;
 @property(nonatomic,strong) NSArray<UIButton *> *modeButtons;
-@property(nonatomic,strong) UIButton *keyboardToggle;
+@property(nonatomic,strong) UIButton *keyboardToggle, *typeToggle;
+@property(nonatomic,strong) UITextField *textBar;
 @property(nonatomic,strong) UILabel *modeHint;
 @property(nonatomic,strong) UIView *keyboard;
 @property(nonatomic,strong) NSMutableArray<NSArray<FPInputButton *> *> *keyRows;
@@ -373,6 +383,7 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
                            [self systemButton:@"hammer" label:@"Mine mode" action:@selector(selectMode:)],
                            [self systemButton:@"cursorarrow" label:@"Cursor mode" action:@selector(selectMode:)]];
         self.keyboardToggle=[self systemButton:@"keyboard" label:@"Keyboard" action:@selector(toggleKeyboard)];
+        self.typeToggle=[self systemButton:@"character.cursor.ibeam" label:@"Type with the iOS keyboard" action:@selector(toggleTextBar)];
         self.toggle=[self systemButton:@"eye.slash" label:@"Hide controls" action:@selector(toggleControls)];
         for (UIButton *b in self.modeButtons) b.accessibilityHint=@"Switch between Tap, Mine and Cursor mode";
 
@@ -385,10 +396,12 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
         self.modeHint.userInteractionEnabled=NO;
         [self addSubview:self.modeHint];
         [self buildKeyboard];
+        [self buildTextBar];
         [self refreshModeButtons];
         [self wake];
         NSNotificationCenter *center=[NSNotificationCenter defaultCenter];
         [center addObserver:self selector:@selector(releaseInputs) name:UIApplicationWillResignActiveNotification object:nil];
+        [center addObserver:self selector:@selector(refreshKeyLabels) name:FPInputChanged object:nil];
         for (NSNotificationName name in @[GCMouseDidConnectNotification,GCMouseDidDisconnectNotification,
                                           GCKeyboardDidConnectNotification,GCKeyboardDidDisconnectNotification,
                                           GCControllerDidConnectNotification,GCControllerDidDisconnectNotification])
@@ -485,7 +498,7 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
     NSMutableArray *views=[NSMutableArray arrayWithArray:self.buttons];
     [views addObjectsFromArray:self.modeButtons];
     [views addObjectsFromArray:@[self.joystick,self.systemPill,self.systemDivider,self.menuPill,self.zoomPill,
-                                 self.modifierPill,self.keyboardToggle,self.toggle]];
+                                 self.modifierPill,self.keyboardToggle,self.typeToggle,self.toggle]];
     return views;
 }
 // Controls fade back while the player watches the factory and return on the next touch.
@@ -499,7 +512,7 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
 - (void)rest {
     BOOL held=self.joystick.direction>=0;
     for (FPInputButton *b in self.buttons) held=held || (b.inputHeld && !b.latch);
-    if (held || !self.keyboard.hidden || self.split) { [self wake]; return; }
+    if (held || !self.keyboard.hidden || !self.textBar.hidden || self.split) { [self wake]; return; }
     self.dimmed=YES;
     [UIView animateWithDuration:0.6 animations:^{ for (UIView *v in [self fadingViews]) v.alpha=0.45; }];
 }
@@ -533,7 +546,7 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
     self.modeHint.text=text;
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(fadeHint) object:nil];
     [self setNeedsLayout];
-    [UIView animateWithDuration:0.2 animations:^{ self.modeHint.alpha=self.keyboard.hidden ? 1 : 0; }];
+    [UIView animateWithDuration:0.2 animations:^{ self.modeHint.alpha=self.keyboard.hidden && self.textBar.hidden ? 1 : 0; }];
     [self performSelector:@selector(fadeHint) withObject:nil afterDelay:3.2];
 }
 - (void)fadeHint { [UIView animateWithDuration:0.4 animations:^{ self.modeHint.alpha=0; }]; }
@@ -542,19 +555,22 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
     for (UIView *v in self.buttons) v.hidden=!playing;
     for (UIView *v in @[self.menuPill,self.zoomPill,self.modifierPill,self.joystick]) v.hidden=!playing;
     for (UIView *v in self.modeButtons) v.hidden=!self.expanded;
-    self.keyboardToggle.hidden=!self.expanded; self.systemDivider.hidden=!self.expanded;
+    self.keyboardToggle.hidden=!self.expanded; self.typeToggle.hidden=!self.expanded; self.systemDivider.hidden=!self.expanded;
     // The surface captures touches only for Mine and Cursor; it still draws the arrow for a hardware mouse.
     BOOL captures=self.expanded && self.pointerSurface.mode!=0;
     self.pointerSurface.userInteractionEnabled=captures;
     self.pointerSurface.hidden=!captures && !self.pointerSurface.hardwareCursor && !(self.expanded && self.pointerSurface.mode==2);
     self.keyboardToggle.backgroundColor=self.keyboard.hidden ? UIColor.clearColor : FPAccent();
     self.keyboardToggle.tintColor=self.keyboard.hidden ? UIColor.whiteColor : FPInk();
+    self.typeToggle.backgroundColor=self.textBar.hidden ? UIColor.clearColor : FPAccent();
+    self.typeToggle.tintColor=self.textBar.hidden ? UIColor.whiteColor : FPInk();
     [self.toggle setImage:[UIImage systemImageNamed:self.expanded ? @"eye.slash" : @"eye"] forState:UIControlStateNormal];
     self.toggle.accessibilityLabel=self.expanded ? @"Hide controls" : @"Show controls";
     [self setNeedsLayout];
 }
 - (void)toggleKeyboard {
     [self releaseInputs];
+    [self.textBar resignFirstResponder];
     self.keyboard.hidden=!self.keyboard.hidden;
     if (!self.keyboard.hidden) self.modeHint.alpha=0;
     [self applyVisibility];
@@ -570,13 +586,14 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
         @[@"Tab",@"q",@"w",@"e",@"r",@"t",@"y",@"u",@"i",@"o",@"p",@"[",@"]",@"\\"],
         @[@"Caps",@"a",@"s",@"d",@"f",@"g",@"h",@"j",@"k",@"l",@";",@"'",@"Enter"],
         @[@"Shift",@"z",@"x",@"c",@"v",@"b",@"n",@"m",@",",@".",@"/",@"↑",@"Del"],
-        @[@"Ctrl",@"Alt",@"Cmd",@"Space",@"Home",@"End",@"PgUp",@"PgDn",@"Ins",@"←",@"↓",@"→"]];
+        @[@"Ctrl",@"Alt",@"Cmd",@"Space",@"Copy",@"Paste",@"Home",@"End",@"PgUp",@"PgDn",@"Ins",@"←",@"↓",@"→"]];
     NSDictionary *special=@{@"Esc":@(SDL_SCANCODE_ESCAPE),@"⌫":@(SDL_SCANCODE_BACKSPACE),@"Tab":@(SDL_SCANCODE_TAB),
         @"Caps":@(SDL_SCANCODE_CAPSLOCK),@"Enter":@(SDL_SCANCODE_RETURN),@"Shift":@(SDL_SCANCODE_LSHIFT),
         @"Ctrl":@(SDL_SCANCODE_LCTRL),@"Alt":@(SDL_SCANCODE_LALT),@"Cmd":@(SDL_SCANCODE_LGUI),
         @"Space":@(SDL_SCANCODE_SPACE),@"Home":@(SDL_SCANCODE_HOME),@"End":@(SDL_SCANCODE_END),
         @"PgUp":@(SDL_SCANCODE_PAGEUP),@"PgDn":@(SDL_SCANCODE_PAGEDOWN),@"Ins":@(SDL_SCANCODE_INSERT),
-        @"Del":@(SDL_SCANCODE_DELETE),@"←":@(SDL_SCANCODE_LEFT),@"↓":@(SDL_SCANCODE_DOWN),@"→":@(SDL_SCANCODE_RIGHT),@"↑":@(SDL_SCANCODE_UP)};
+        @"Del":@(SDL_SCANCODE_DELETE),@"←":@(SDL_SCANCODE_LEFT),@"↓":@(SDL_SCANCODE_DOWN),@"→":@(SDL_SCANCODE_RIGHT),@"↑":@(SDL_SCANCODE_UP),
+        @"Copy":@(SDL_SCANCODE_C),@"Paste":@(SDL_SCANCODE_V)};
     for (NSArray<NSString *> *labels in rows) {
         NSMutableArray *buttons=[NSMutableArray new];
         for (NSString *label in labels) {
@@ -585,7 +602,8 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
             [self.buttons removeLastObject];
             b.standalone=YES; b.layer.cornerRadius=7;
             b.latch=[@[@"Shift",@"Ctrl",@"Alt",@"Cmd"] containsObject:label];
-            if (label.length==1) b.text=label;
+            b.withCommand=[@[@"Copy",@"Paste"] containsObject:label]; // the Mac build's text boxes take Cmd+C and Cmd+V
+            if (label.length==1 && !special[label]) b.text=label; // ⌫ and the arrows are keys, not text
             if ([label isEqual:@"Space"]) b.text=@" ";
             [b refreshAppearance];
             [self.keyboard addSubview:b]; [buttons addObject:b];
@@ -594,6 +612,37 @@ static BOOL FPDirectionHas(int direction,int a,int b,int c) { return direction==
     }
     [self addSubview:self.keyboard];
 }
+// Letters and symbols show what they type, so Shift and Caps Lock are visible.
+- (void)refreshKeyLabels {
+    for (NSArray<FPInputButton *> *row in self.keyRows) for (FPInputButton *b in row)
+        if (b.text.length==1 && ![b.text isEqual:@" "]) [b setTitle:b.typedText forState:UIControlStateNormal];
+}
+// A native text field for the iOS keyboard, its paste menu and dictation. Return types
+// the text into whichever of the game's text boxes has focus.
+- (void)buildTextBar {
+    UITextField *bar=[UITextField new]; bar.hidden=YES; bar.delegate=self;
+    bar.borderStyle=UITextBorderStyleRoundedRect; bar.overrideUserInterfaceStyle=UIUserInterfaceStyleDark;
+    bar.keyboardAppearance=UIKeyboardAppearanceDark; bar.accessibilityLabel=@"Text for the game";
+    bar.placeholder=@"Type or paste, then Return to send it to the game";
+    bar.autocorrectionType=UITextAutocorrectionTypeNo; bar.autocapitalizationType=UITextAutocapitalizationTypeNone;
+    bar.spellCheckingType=UITextSpellCheckingTypeNo; bar.smartQuotesType=UITextSmartQuotesTypeNo;
+    bar.smartDashesType=UITextSmartDashesTypeNo; bar.smartInsertDeleteType=UITextSmartInsertDeleteTypeNo;
+    bar.returnKeyType=UIReturnKeySend; bar.clearButtonMode=UITextFieldViewModeWhileEditing;
+    self.textBar=bar; [self addSubview:bar];
+}
+- (void)toggleTextBar {
+    if (!self.textBar.hidden) { [self.textBar resignFirstResponder]; return; }
+    [self releaseInputs];
+    self.keyboard.hidden=YES; self.modeHint.alpha=0; self.textBar.hidden=NO;
+    [self applyVisibility];
+    [self.textBar becomeFirstResponder];
+}
+- (BOOL)textFieldShouldReturn:(UITextField *)field {
+    if (field.text.length) FPIText(field.text.UTF8String);
+    field.text=@""; [field resignFirstResponder];
+    return NO;
+}
+- (void)textFieldDidEndEditing:(UITextField *)field { field.hidden=YES; [self applyVisibility]; }
 - (void)toggleControls {
     [self releaseInputs]; self.expanded=!self.expanded; self.autoHidden=NO;
     self.keyboard.hidden=YES;
@@ -614,7 +663,7 @@ static CGRect FPLayoutPill(UIView *pill,NSArray<UIView *> *items,CGPoint origin,
     return frame;
 }
 - (NSArray<UIView *> *)systemItems {
-    return self.expanded ? @[self.modeButtons[0],self.modeButtons[1],self.modeButtons[2],self.keyboardToggle,self.toggle] : @[self.toggle];
+    return self.expanded ? @[self.modeButtons[0],self.modeButtons[1],self.modeButtons[2],self.keyboardToggle,self.typeToggle,self.toggle] : @[self.toggle];
 }
 - (CGFloat)systemWidthItem:(CGFloat)item pad:(CGFloat)pad divider:(CGFloat)divider {
     return FPPillLength(self.systemItems.count,item,pad)+(self.expanded ? divider : 0);
@@ -680,7 +729,7 @@ static CGRect FPLayoutPill(UIView *pill,NSArray<UIView *> *items,CGPoint origin,
     CGFloat item=round(40*s), pad=round(4*s), gap=round(10*s);
     UIImageSymbolConfiguration *symbol=[UIImageSymbolConfiguration configurationWithPointSize:round(17*s) weight:UIImageSymbolWeightSemibold];
     UIImageSymbolConfiguration *small=[UIImageSymbolConfiguration configurationWithPointSize:round(15*s) weight:UIImageSymbolWeightSemibold];
-    for (UIButton *b in [self.modeButtons arrayByAddingObjectsFromArray:@[self.keyboardToggle,self.toggle]])
+    for (UIButton *b in [self.modeButtons arrayByAddingObjectsFromArray:@[self.keyboardToggle,self.typeToggle,self.toggle]])
         [b setPreferredSymbolConfiguration:small forImageInState:UIControlStateNormal];
     for (FPInputButton *b in [self.menuRail arrayByAddingObjectsFromArray:self.zoomPair])
         [b setPreferredSymbolConfiguration:symbol forImageInState:UIControlStateNormal];
@@ -723,6 +772,8 @@ static CGRect FPLayoutPill(UIView *pill,NSArray<UIView *> *items,CGPoint origin,
 
     CGFloat keyboardWidth=MIN(900,width);
     [self layoutKeyboardIn:CGRectMake(CGRectGetMidX(area)-keyboardWidth/2,top,keyboardWidth,MIN(288,CGRectGetMaxY(area)-top))];
+    CGFloat barWidth=MIN(520,width);
+    self.textBar.frame=CGRectMake(MIN(MAX(round(centerX-barWidth/2),CGRectGetMinX(area)),CGRectGetMaxX(area)-barWidth),top,barWidth,round(40*s));
 }
 // Portrait: the game shrinks to the top of the screen and the controls sit on an opaque deck below it.
 - (void)layoutDeckIn:(CGRect)area scale:(CGFloat)s item:(CGFloat)item pad:(CGFloat)pad gap:(CGFloat)gap {
@@ -770,6 +821,9 @@ static CGRect FPLayoutPill(UIView *pill,NSArray<UIView *> *items,CGPoint origin,
     // The keyboard takes over the deck below the system pill, so the game stays visible above it.
     CGFloat keyboardTop=deckTop+row+gap;
     [self layoutKeyboardIn:CGRectMake(CGRectGetMinX(area),keyboardTop,width,CGRectGetMaxY(area)-keyboardTop)];
+    // The iOS keyboard covers the deck, so the text bar goes at the top, over the game.
+    CGFloat barWidth=MIN(520,width);
+    self.textBar.frame=CGRectMake(round(CGRectGetMidX(area)-barWidth/2),CGRectGetMinY(area),barWidth,round(40*s));
 }
 @end
 

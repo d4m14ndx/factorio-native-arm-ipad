@@ -8,7 +8,7 @@ touch, and return on the next touch. Buttons give a light haptic tap.
 
 | Control | Function |
 |---|---|
-| **Pill at the top** | Touch mode (**Tap** / **Mine** / **Cursor**), on-screen keyboard, and the eye button to hide or show the controls |
+| **Pill at the top** | Touch mode (**Tap** / **Mine** / **Cursor**), on-screen keyboard, iOS text box, and the eye button to hide or show the controls |
 | **Stick**, bottom left | Walk (W A S D), in eight equal directions, so diagonals are as easy as straight lines |
 | **Rail above the stick** | Menu (Esc), Inventory (E), Research (T), Map (M) |
 | **Use**, the large button in the bottom-right corner | Left click: select, build, open |
@@ -16,9 +16,12 @@ touch, and return on the next touch. Buttons give a light haptic tap.
 | Outer arc: **Pick up**, **Shoot**, **Gun**, **Middle** | F / Space / Tab (switch gun; also answers the matching tutorial prompt) / middle click |
 | **Zoom** pair above the arc | Zoom out / in |
 | **Shift**, **Ctrl**, **Alt** | Tap to hold the modifier down; tap again to release |
-| **Keyboard** | Full keyboard with letters, numbers, Enter, function and arrow keys |
+| **Keyboard** | Full keyboard with letters, numbers, Enter, function and arrow keys. Keys show what Shift and Caps Lock make them type; **Copy** and **Paste** send Cmd+C and Cmd+V |
+| **Text box** (the I-beam in the pill) | A native text field with the iOS keyboard, its paste menu and dictation. Tap one of the game's text boxes first; **Return** types the text into it |
 
 The exact effect of each click depends on the game's context and key bindings.
+Pasting reads the iPhone or iPad clipboard, and iOS asks each time unless you
+allow it under **Settings → Apps → Factorio → Paste from Other Apps**.
 
 ## Touch modes
 
