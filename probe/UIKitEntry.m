@@ -3,6 +3,7 @@
 #import <UIKit/UIKit.h>
 #include <mach-o/dyld.h>
 #include <dlfcn.h>
+#include <os/proc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,6 +101,7 @@ int ProbeMain(int argc, char **argv) {
         if (!run) { fprintf(stderr,"FACTORIO_PROBE: SDL UIKit load failed: %s\n",dlerror()); return 1; }
         id<MTLDevice> device=MTLCreateSystemDefaultDevice();
         PrepareMetalCompatibility(device);
+        fprintf(stderr,"FACTORIO_PROBE: memory available to the app %.0f MB\n",os_proc_available_memory()/1048576.0);
         fprintf(stderr,"FACTORIO_PROBE: Metal device=%s mac1=%d apple7=%d apple3=%d\n",
                 device.name.UTF8String ?: "none", [device supportsFamily:MTLGPUFamilyMac1],
                 [device supportsFamily:MTLGPUFamilyApple7],[device supportsFamily:MTLGPUFamilyApple3]);

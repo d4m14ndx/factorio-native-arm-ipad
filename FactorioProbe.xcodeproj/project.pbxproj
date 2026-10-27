@@ -13,12 +13,14 @@
 /* Begin PBXFileReference section */
 		A00000000000000000000006 /* probe/MainPlaceholder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = probe/MainPlaceholder.m; sourceTree = "<group>"; };
 		A00000000000000000000007 /* FactorioProbe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FactorioProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D39EDC123090D51000A192A6 /* FactorioProbe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FactorioProbe.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		A00000000000000000000003 = {
 			isa = PBXGroup;
 			children = (
+				D39EDC123090D51000A192A6 /* FactorioProbe.entitlements */,
 				A00000000000000000000006 /* probe/MainPlaceholder.m */,
 				A00000000000000000000004 /* Products */,
 			);
@@ -130,6 +132,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = FactorioProbe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_DEBUG_DYLIB = NO;
@@ -145,6 +148,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = FactorioProbe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_DEBUG_DYLIB = NO;
