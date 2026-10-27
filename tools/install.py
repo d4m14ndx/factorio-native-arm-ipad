@@ -286,7 +286,7 @@ def main():
         say('Installed, but it could not be started from the Mac. Open Factorio from the home screen.')
     else:
         say('Factorio is starting on the device. The first start takes about 30 seconds;')
-        say('tap Confirm on the Steam notice. You can unplug the cable now.')
+        say('tap Confirm if a Steam notice appears. You can unplug the cable now.')
 
 
 if __name__ == '__main__':

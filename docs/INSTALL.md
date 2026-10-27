@@ -110,8 +110,8 @@ The installer remembers your choices, so later runs need no answers.
   Device Management**, tap your Apple Account under **Developer App**, and tap
   **Trust**. Then open Factorio from the home screen.
 - The first start takes about 30 seconds.
-- Tap **Confirm** on the **Steam error** message. Steam features aren't
-  available on iOS; the game itself works.
+- Steam features aren't available on iOS; the game itself works. If a
+  **Steam error** message appears, tap **Confirm**.
 - Close the changelog if it appears, then start a tutorial or a new game.
 
 You can unplug the cable now. The game runs entirely on the device.

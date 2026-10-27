@@ -119,6 +119,34 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
             assert struct.unpack_from('<I',data,at)[0]==0x910063e8
             struct.pack_into('<I',data,at,0x14000000|((360-44)//4))
             platform_patches.append(dict(name='SIMULATOR ONLY: probe Metal past GPU-family gate',offset=at,original_bytes='e8630091'))
+    if sdl_path:
+        # iOS has no Steam, so every start opened on a "Steam error" notice.
+        # MainLoop::run raises it only when isSteamApiInitialized() is false:
+        # branch past it always. Steam features still check for themselves.
+        def string_at(at):
+            adrp, add = struct.unpack_from('<II',data,at)
+            page = ((base+at)&~0xfff)+((((adrp>>5)&0x7ffff)<<2|(adrp>>29)&3)<<12)
+            return page+((add>>10)&0xfff)-base
+        run = next((s for s in m.symbols() if s['name'].startswith('__ZN8MainLoop3runE')),None)
+        key = b'gui-update.could-not-init-steam\0'
+        def loads_key(start, end):
+            return any(struct.unpack_from('<I',data,at)[0]&0x9f000000 == 0x90000000
+                       and struct.unpack_from('<I',data,at+4)[0]&0xffc00000 == 0x91000000
+                       and data[string_at(at):string_at(at)+len(key)] == key
+                       for at in range(start,end,4))
+        sites = []
+        for at in range(run['address']-base,run['address']-base+0x4000,4) if run else ():
+            word = struct.unpack_from('<I',data,at)[0]
+            if word&0xfff8001f == 0x37000000: # tbnz w0, #0
+                skip = at+4*((((word>>5)&0x3fff)^0x2000)-0x2000)
+                if at < skip < at+0x400 and loads_key(at+4,skip):
+                    sites.append((at,skip))
+        if len(sites) == 1:
+            at, skip = sites[0]
+            platform_patches.append(dict(name='no Steam error notice at startup',offset=at,original_bytes=data[at:at+4].hex()))
+            struct.pack_into('<I',data,at,0x14000000|((skip-at)>>2)) # b past the notice
+        else:
+            print('Note: unrecognised MainLoop::run; the Steam error notice will still show')
     extra += b'\0'
     binding = oldbind[:bind_end(oldbind)] + extra
     newoff = (len(data)+7)&~7
