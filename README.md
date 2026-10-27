@@ -15,7 +15,7 @@ app to be signed by its installer, and Factorio's files may not be shared.
 
 - An **Apple Silicon Mac** (M1 or newer) with about 40 GB free
 - **Xcode** from the App Store: **27.2 or later** for iPhone Duo
-- **Factorio 2.1.23 for macOS from Steam** (2.0.77 also works on iPad)
+- **Factorio 2.1.23 for macOS from Steam** (2.0.77 also works)
 - An **Apple Account**; a free one works, but the app must be reinstalled every 7 days
 - One of these devices and a USB cable:
 

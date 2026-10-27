@@ -203,6 +203,257 @@ def adapt_sdl3_scene_window(source):
             raise ValueError('Pinned SDL 3.4.14 UIKit view layout changed')
         controller_path.write_text(controller_text.replace(old_layout, new_layout, 1))
 
+def adapt_sdl2_scene_window(source):
+    """Port the Duo window fixes above to SDL 2.30.9 for Factorio 2.0.77.
+
+    SDL 2 predates UIScene, and iOS 27 stops apps built with its SDK that
+    don't adopt the scene life cycle. Adopt it as SDL 3 does, start the game
+    once the scene connects, and create the window in that scene rather than
+    on UIScreen.mainScreen (the Duo's outer panel). Then size, focus and inset
+    the view as the SDL 3 changes do.
+    """
+    header_path = source/'src/video/uikit/SDL_uikitappdelegate.h'
+    header = header_path.read_text()
+    old_interface = '@interface SDLUIKitDelegate : NSObject<UIApplicationDelegate>'
+    new_interface = '@interface SDLUIKitDelegate : NSObject<UIApplicationDelegate, UIWindowSceneDelegate>'
+    if new_interface not in header:
+        if header.count(old_interface) != 1:
+            raise ValueError('Pinned SDL 2.30.9 app delegate interface changed')
+        header_path.write_text(header.replace(old_interface, new_interface, 1))
+
+    delegate_path = source/'src/video/uikit/SDL_uikitappdelegate.m'
+    delegate = delegate_path.read_text()
+    old_ivars = '''@implementation SDLUIKitDelegate {
+    UIWindow *launchWindow;
+}
+'''
+    new_ivars = '''@implementation SDLUIKitDelegate {
+    UIWindow *launchWindow;
+    BOOL sceneConnected;
+}
+'''
+    old_start = '''    SDL_SetMainReady();
+    [self performSelector:@selector(postFinishLaunch) withObject:nil afterDelay:0.0];
+
+    return YES;
+}
+'''
+    # As in SDL 3, the app delegate class is also the scene delegate. The
+    # instance UIKit makes for the scene hands over to the app delegate.
+    new_start = '''    SDL_SetMainReady();
+    /* The game starts once the scene connects, below. */
+
+    return YES;
+}
+
+- (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession options:(UISceneConnectionOptions *)options
+{
+    UISceneConfiguration *config = [[UISceneConfiguration alloc] initWithName:@"SDLSceneConfiguration" sessionRole:connectingSceneSession.role];
+    config.delegateClass = [self class];
+    return config;
+}
+
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions
+{
+    SDLUIKitDelegate *app = [SDLUIKitDelegate sharedAppDelegate];
+    if (![scene isKindOfClass:[UIWindowScene class]] || app->sceneConnected) {
+        return;
+    }
+    app->sceneConnected = YES;
+    /* The launch window was made before any scene existed. */
+    app->launchWindow.windowScene = (UIWindowScene *)scene;
+    [app performSelector:@selector(postFinishLaunch) withObject:nil afterDelay:0.0];
+}
+'''
+    for old, new, what in ((old_ivars, new_ivars, 'instance variables'),
+                           (old_start, new_start, 'launch')):
+        if new not in delegate:
+            if delegate.count(old) != 1:
+                raise ValueError('Pinned SDL 2.30.9 app delegate '+what+' changed')
+            delegate = delegate.replace(old, new, 1)
+    if delegate_path.read_text() != delegate:
+        delegate_path.write_text(delegate)
+
+    path = source/'src/video/uikit/SDL_uikitwindow.m'
+    original = '''    SDL_uikitview *view;
+
+    CGRect frame = UIKit_ComputeViewFrame(window, displaydata.uiscreen);
+    int width  = (int) frame.size.width;
+    int height = (int) frame.size.height;
+
+    SDL_WindowData *data = [[SDL_WindowData alloc] init];
+    if (!data) {
+        return SDL_OutOfMemory();
+    }
+
+    window->driverdata = (void *) CFBridgingRetain(data);
+
+    data.uiwindow = uiwindow;
+'''
+    adapted = '''    SDL_uikitview *view;
+    SDL_WindowData *data = [[SDL_WindowData alloc] init];
+    CGRect frame;
+    int width, height;
+    if (!data) {
+        return SDL_OutOfMemory();
+    }
+
+    window->driverdata = (void *) CFBridgingRetain(data);
+    data.uiwindow = uiwindow;
+
+    frame = UIKit_ComputeViewFrame(window, displaydata.uiscreen);
+    width  = (int) frame.size.width;
+    height = (int) frame.size.height;
+'''
+    text = path.read_text()
+    if adapted not in text:
+        if text.count(original) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit window setup changed')
+        text = text.replace(original, adapted, 1)
+
+    helper = '''static UIWindowScene *UIKit_GetActiveWindowScene(void)
+{
+    UIWindowScene *fallback = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) {
+            continue;
+        }
+        if (scene.activationState == UISceneActivationStateForegroundActive) {
+            return (UIWindowScene *)scene;
+        }
+        if (!fallback || scene.activationState == UISceneActivationStateForegroundInactive) {
+            fallback = (UIWindowScene *)scene;
+        }
+    }
+    return fallback;
+}
+
+static BOOL UIKit_IsActiveSceneScreen(UIScreen *screen)
+{
+    UIWindowScene *scene = UIKit_GetActiveWindowScene();
+    return screen == (scene ? scene.screen : [UIScreen mainScreen]);
+}
+
+'''
+    anchor = 'static int SetupWindowData(_THIS, SDL_Window *window, UIWindow *uiwindow, SDL_bool created)'
+    if helper not in text:
+        if text.count(anchor) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit setup anchor changed')
+        text = text.replace(anchor, helper + anchor, 1)
+
+    old_create = '''        /* ignore the size user requested, and make a fullscreen window */
+        /* !!! FIXME: can we have a smaller view? */
+        UIWindow *uiwindow = [[SDL_uikitwindow alloc] initWithFrame:data.uiscreen.bounds];
+'''
+    new_create = '''        /* Join the active scene, so the window takes that scene's display
+         * (the Duo's inner panel) rather than UIScreen.mainScreen's. */
+        UIWindowScene *scene = UIKit_GetActiveWindowScene();
+        UIWindow *uiwindow = scene ? [[SDL_uikitwindow alloc] initWithWindowScene:scene]
+                                   : [[SDL_uikitwindow alloc] initWithFrame:data.uiscreen.bounds];
+'''
+    if new_create not in text:
+        if text.count(old_create) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit window creation changed')
+        text = text.replace(old_create, new_create, 1)
+    # As in SDL 3: keep SDL's display choice, but take focus, resizing and the
+    # status bar from the screen the window actually shows on.
+    comparisons = [
+        ('\n    if (displaydata.uiscreen != [UIScreen mainScreen]) {',
+         '\n    if (!UIKit_IsActiveSceneScreen(uiwindow.screen)) {'),
+        ('\n    if (displaydata.uiscreen == [UIScreen mainScreen]) {',
+         '\n    if (UIKit_IsActiveSceneScreen(uiwindow.screen)) {'),
+        ('\n        if (displaydata.uiscreen == [UIScreen mainScreen]) {\n            SDL_SetMouseFocus(window);',
+         '\n        if (UIKit_IsActiveSceneScreen(data.uiwindow.screen)) {\n            SDL_SetMouseFocus(window);'),
+        ('\n    if (data.uiwindow.screen == [UIScreen mainScreen]) {',
+         '\n    if (UIKit_IsActiveSceneScreen(data.uiwindow.screen)) {'),
+    ]
+    for old, new in comparisons:
+        if text.count(old) == 1:
+            text = text.replace(old, new, 1)
+        elif new not in text:
+            raise ValueError('Pinned SDL 2.30.9 screen comparison changed: '+old.strip())
+    if path.read_text() != text:
+        path.write_text(text)
+
+    video_path = source/'src/video/uikit/SDL_uikitvideo.m'
+    old_orientation = '''    UIInterfaceOrientation orient = [UIApplication sharedApplication].statusBarOrientation;
+    BOOL landscape = UIInterfaceOrientationIsLandscape(orient) ||
+                    !(UIKit_GetSupportedOrientations(window) & (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown));
+'''
+    new_orientation = '''    UIInterfaceOrientation orient = data.uiwindow.windowScene.interfaceOrientation != UIInterfaceOrientationUnknown ?
+        data.uiwindow.windowScene.interfaceOrientation : [UIApplication sharedApplication].statusBarOrientation;
+    BOOL landscape = (orient == UIInterfaceOrientationUnknown ? frame.size.width > frame.size.height : UIInterfaceOrientationIsLandscape(orient)) ||
+                    !(UIKit_GetSupportedOrientations(window) & (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown));
+'''
+    video_text = video_path.read_text()
+    if new_orientation not in video_text:
+        if video_text.count(old_orientation) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit orientation calculation changed')
+        video_text = video_text.replace(old_orientation, new_orientation, 1)
+
+    old_viewport = '''#endif
+
+    return frame;
+}
+
+void UIKit_ForceUpdateHomeIndicator(void)
+'''
+    new_viewport = '''#endif
+
+#if !TARGET_OS_TV
+    if (data != nil && data.uiwindow != nil &&
+        data.uiwindow.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        extern float FPIReservedBottom(void);
+        UIEdgeInsets safe = data.uiwindow.safeAreaInsets;
+        const CGFloat corner = 16.0f;
+        safe.top = SDL_max(safe.top, corner);
+        safe.left = SDL_max(safe.left, corner);
+        /* The portrait control deck reserves the lower part of the window. */
+        safe.bottom = SDL_max(corner, FPIReservedBottom());
+        safe.right = SDL_max(safe.right, corner);
+        frame = UIEdgeInsetsInsetRect(frame, safe);
+    }
+#endif
+
+    return frame;
+}
+
+void UIKit_ForceUpdateHomeIndicator(void)
+'''
+    if new_viewport not in video_text:
+        if video_text.count(old_viewport) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit viewport calculation changed')
+        video_text = video_text.replace(old_viewport, new_viewport, 1)
+    if video_path.read_text() != video_text:
+        video_path.write_text(video_text)
+
+    controller_path = source/'src/video/uikit/SDL_uikitviewcontroller.m'
+    old_layout = '''- (void)viewDidLayoutSubviews
+{
+    const CGSize size = self.view.bounds.size;
+'''
+    new_layout = '''- (void)viewDidLayoutSubviews
+{
+#if !TARGET_OS_TV
+    SDL_WindowData *data = (__bridge SDL_WindowData *) window->driverdata;
+    if (data != nil && data.uiwindow != nil &&
+        data.uiwindow.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        CGRect frame = UIKit_ComputeViewFrame(window, data.uiwindow.screen);
+        if (!CGRectEqualToRect(self.view.frame, frame)) {
+            self.view.autoresizingMask = UIViewAutoresizingNone;
+            self.view.frame = frame;
+            [self.view layoutIfNeeded];
+        }
+    }
+#endif
+    const CGSize size = self.view.bounds.size;
+'''
+    controller_text = controller_path.read_text()
+    if new_layout not in controller_text:
+        if controller_text.count(old_layout) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit view layout changed')
+        controller_path.write_text(controller_text.replace(old_layout, new_layout, 1))
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--sdk',choices=['iphoneos','iphonesimulator'],default='iphonesimulator')
@@ -223,8 +474,10 @@ def main():
         with tarfile.open(archive) as tar: tar.extractall(vendor,filter='data')
     if major == 3:
         adapt_sdl3_scene_window(source)
+    else:
+        adapt_sdl2_scene_window(source)
     # Add the input adapter to SDL's target so it can call private event/state
-    # functions. SDL3 also carries the narrowly scoped Duo scene-size fix above.
+    # functions. Both SDL versions also carry the Duo window fixes above.
     with tarfile.open(archive) as tar:
         upstream=tar.extractfile(stem+'/CMakeLists.txt').read().decode()
     target = 'SDL2' if major == 2 else 'SDL3-shared'

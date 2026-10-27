@@ -52,7 +52,7 @@ patches specific locations in the game's code:
 
 | Device | Factorio version (macOS, Steam) |
 |---|---|
-| iPhone Duo | **2.1.23** (build 87750) |
+| iPhone Duo | **2.1.23** (build 87750), or 2.0.77 (build 84539) |
 | iPad | **2.1.23**, or 2.0.77 (build 84539) |
 
 1. Install Factorio from **Steam** on the Mac and let it finish downloading.
