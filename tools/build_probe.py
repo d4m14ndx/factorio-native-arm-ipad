@@ -82,6 +82,7 @@ def build_shim(app, uikit=False, sdk='iphonesimulator', sdl_major=2):
                '-Werror=property-attribute-mismatch','-Werror=objc-property-synthesis',
                '-isysroot',sdk_root,'-dynamiclib','-fobjc-arc',str(source),str(ROOT/'probe/PlatformFallbacks.m'),
                str(ROOT/'probe/BitmapCompat.m'),'-framework','ImageIO',
+               '-framework','Accelerate',
                '-o',str(library),'-install_name','@executable_path/Frameworks/ProbeShim.dylib',
                '-Wl,-reexport-lSystem','-Wl,-reexport-lobjc','-Wl,-reexport-lresolv']
     if uikit:

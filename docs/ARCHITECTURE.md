@@ -50,7 +50,7 @@ implemented on iOS.
 | `tools/xcode_build.sh` | Integrate with Xcode, apply its bundle ID, and sign libraries |
 | `probe/UIKitEntry.m` | App lifecycle, local data paths, original game startup, and CLI probes |
 | `probe/MetalCompat.m` | Supply the missing macOS depth-format query |
-| `probe/BitmapCompat.m` | Required NSBitmapImageRep/NSColorSpace operations using ImageIO/RGBA8 |
+| `probe/BitmapCompat.m` | NSBitmapImageRep/NSColorSpace for the game's PNG loading: ImageIO decode, vImage to unpremultiplied RGBA8 |
 | `probe/PlatformFallbacks.m` | Report OpenCL and Steam as unavailable |
 | `probe/TouchControls.m` | Touch overlay, portrait deck, on-screen keyboard, cursor, and Bluetooth hardware handling |
 | `probe/SDLInputBridge.c` | Send overlay and trackpad input through SDL's event path; hold the portrait reserve |
@@ -65,6 +65,28 @@ engine and its Metal renderer are preserved. On the tested
 M1 iPad, the compatibility layer implements the missing
 `isDepth24Stencil8PixelFormatSupported` method by returning `NO`, causing the
 original renderer to select its alternative depth format.
+
+## Startup
+
+Most of startup is sprite loading: Factorio's loader threads read each PNG and
+decode it through `NSBitmapImageRep`, which on iOS is `BitmapCompat.m`. It
+decodes with ImageIO and repacks with vImage straight to the unpremultiplied
+RGBA8 the loader expects, so an 8-bit RGBA sprite arrives as the file's own
+samples. Earlier builds drew through a CGContext, which premultiplies and so
+loses the colour of nearly transparent pixels; that and dividing the alpha back
+out took close to a third of the decode time.
+
+The generated config offers the loader every core and turns on Factorio's
+`cache-sprite-atlas`, so later launches with the same mods read the built
+atlases from `atlas-cache.dat` (about 0.9 GB with 84 mods) and only decode the
+sprites of the streamed virtual atlas. A reinstall keeps the cache. Existing
+configs change only where they still hold the old default of 2 loader threads
+or the commented-out atlas cache default. `cache-prototype-data` stays off: on
+iOS the game rewrites its 150 MB data cache on every launch but never uses it.
+
+On the iPhone Duo with Space Age and 84 mods, the main menu took 72.5 s before
+these changes, 47.3 s with them when the atlas cache has to be rebuilt, and
+28.6 s with the cache.
 
 ## Hardware input
 

@@ -109,7 +109,8 @@ The installer remembers your choices, so later runs need no answers.
 - **"Untrusted Developer" on the device:** open **Settings → General → VPN &
   Device Management**, tap your Apple Account under **Developer App**, and tap
   **Trust**. Then open Factorio from the home screen.
-- The first start takes about 30 seconds.
+- The first start takes about 30 seconds. Later starts are quicker: the game
+  keeps its built sprite atlas and reuses it until the mods change.
 - Tap **Confirm** on the **Steam error** message. Steam features aren't
   available on iOS; the game itself works.
 - Close the changelog if it appears, then start a tutorial or a new game.

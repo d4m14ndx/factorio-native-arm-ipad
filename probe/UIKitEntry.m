@@ -33,7 +33,12 @@ int ProbeMain(int argc, char **argv) {
             BOOL phone=UI_USER_INTERFACE_IDIOM()==UIUserInterfaceIdiomPhone;
             NSString *compression=phone ? @"low-quality" : @"none";
             NSString *atlasCompression=phone ? @"true" : @"false";
-            NSString *text=[NSString stringWithFormat:@"[path]\nread-data=%@\nwrite-data=%@\n[general]\ncheck-updates=false\n[graphics]\ntexture-compression-level=%@\ncompress-virtual-atlas=%@\ngpu-accelerated-compression=false\ngpu-accelerated-mipmap-compression=false\nvideo-memory-usage=low\nmax-sprite-loading-threads=2\n",data,user,compression,atlasCompression];
+            // Startup is mostly PNG decoding on the sprite loader threads, which scales
+            // across cores, so offer the game all of them; 2 was this port's earlier default.
+            NSString *loaders=[NSString stringWithFormat:@"max-sprite-loading-threads=%lu",(unsigned long)NSProcessInfo.processInfo.activeProcessorCount];
+            // With Factorio's own atlas cache, later launches with the same mods read the
+            // built sprite atlases from disk instead of decoding every sprite again.
+            NSString *text=[NSString stringWithFormat:@"[path]\nread-data=%@\nwrite-data=%@\n[general]\ncheck-updates=false\n[graphics]\ntexture-compression-level=%@\ncompress-virtual-atlas=%@\ngpu-accelerated-compression=false\ngpu-accelerated-mipmap-compression=false\nvideo-memory-usage=low\n%@\ncache-sprite-atlas=true\n",data,user,compression,atlasCompression,loaders];
             if ([[NSFileManager defaultManager] fileExistsAtPath:config]) {
                 NSString *existing=[NSString stringWithContentsOfFile:config encoding:NSUTF8StringEncoding error:&error];
                 if (!existing) { fprintf(stderr,"FACTORIO_PROBE: cannot read config: %s\n",error.description.UTF8String); return 1; }
@@ -52,6 +57,9 @@ int ProbeMain(int argc, char **argv) {
                         lines[i]=@"texture-compression-level=low-quality";
                     if (phone && inGraphics && [line isEqualToString:@"compress-virtual-atlas=false"])
                         lines[i]=@"compress-virtual-atlas=true";
+                    // Only untouched defaults change, so a value the player chose stays.
+                    if (inGraphics && [line isEqualToString:@"max-sprite-loading-threads=2"]) lines[i]=loaders;
+                    if (inGraphics && [line isEqualToString:@"; cache-sprite-atlas=false"]) lines[i]=@"cache-sprite-atlas=true";
                 }
                 text=[lines componentsJoinedByString:@"\n"];
             }
