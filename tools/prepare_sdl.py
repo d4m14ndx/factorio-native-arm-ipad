@@ -13,6 +13,26 @@ RELEASES = {
     3: ('3.4.14', '9d57b178fb297e121ef2605275937b7afaa7cd24d99ce1f95953e69e7a2535d6'),
 }
 
+def fix_sdl2_display_removal(source):
+    """iOS disconnects the scene's screen when the scene is destroyed, so this
+    runs whenever the app is closed. SDL_DelVideoDisplay then frees the
+    driverdata that was just released, while ARC still holds it as `data`,
+    and the closing release reads freed memory. Clear it first, as SDL 3 does.
+    """
+    path = source/'src/video/uikit/SDL_uikitmodes.m'
+    old_delete = '''            CFRelease(SDL_GetDisplayDriverData(i));
+            SDL_DelVideoDisplay(i);
+'''
+    new_delete = '''            CFRelease(SDL_GetDisplayDriverData(i));
+            SDL_GetDisplay(i)->driverdata = NULL;
+            SDL_DelVideoDisplay(i);
+'''
+    text = path.read_text()
+    if new_delete not in text:
+        if text.count(old_delete) != 1:
+            raise ValueError('Pinned SDL 2.30.9 UIKit display removal changed')
+        path.write_text(text.replace(old_delete, new_delete, 1))
+
 def adapt_sdl3_scene_window(source):
     """Use the active UIWindowScene's bounds during the first SDL window setup.
 
@@ -221,6 +241,8 @@ def main():
     source=vendor/stem
     if not source.exists():
         with tarfile.open(archive) as tar: tar.extractall(vendor,filter='data')
+    if major == 2:
+        fix_sdl2_display_removal(source)
     if major == 3:
         adapt_sdl3_scene_window(source)
     # Add the input adapter to SDL's target so it can call private event/state

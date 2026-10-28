@@ -20,8 +20,9 @@ On a physical iPhone Duo, Factorio 2.1.23 with Space Age loads its main menu and
 saved games and plays with the touch controls, a Bluetooth keyboard, and a
 trackpad through AssistiveTouch (iOS 27.1 and 27.2 RC2). A 120-update Space Age
 simulation produced the same checksum (`4032494708`) as the original Mac game.
-Fold/unfold while running, long sessions, large factories, multiplayer and
-controller play are untested.
+With 2.0.77, folding and unfolding mid-game keeps the game running on whichever
+panel is open. Long sessions, large factories, multiplayer and controller play
+are untested.
 
 The phone build uses low-quality texture compression, virtual-atlas compression
 and low video-memory settings to keep the initial texture allocation down.
