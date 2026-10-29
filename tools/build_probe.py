@@ -200,6 +200,11 @@ def main():
         info['UIStatusBarHidden'] = True
         info['UIViewControllerBasedStatusBarAppearance'] = False
         info['UIRequiresFullScreen'] = True
+        # Long-press the icon for this; UIKitEntry.m starts the game with an empty mods folder.
+        info['UIApplicationShortcutItems'] = [dict(UIApplicationShortcutItemType='safe-mode',
+                                                   UIApplicationShortcutItemTitle='Safe mode',
+                                                   UIApplicationShortcutItemSubtitle='Start without mods',
+                                                   UIApplicationShortcutItemIconSymbolName='shield')]
     info.update(build_app_icon(args.app, app, args.sdk))
     (app/'Info.plist').write_bytes(plistlib.dumps(info))
     if args.bundle_data:

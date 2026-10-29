@@ -3,6 +3,7 @@
 #import <UIKit/UIKit.h>
 #include <mach-o/dyld.h>
 #include <dlfcn.h>
+#include <objc/runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,8 +17,49 @@ typedef int (*UIKitRunApp)(int, char **, MainFunction);
 extern void PrepareMetalCompatibility(id<MTLDevice> device);
 extern void InstallTouchControls(void);
 
+static MainFunction original;
+static BOOL safeMode;
+
+static char **OwnedArguments(NSArray<NSString *> *arguments) {
+    char **owned=calloc(arguments.count+1,sizeof(char *));
+    for (NSUInteger i=0;i<arguments.count;i++) owned[i]=strdup(arguments[i].UTF8String);
+    return owned; // Process-lifetime storage; UIKit and the game retain argv.
+}
+
+// Long-pressing the icon offers Safe mode (UIApplicationShortcutItems in build_probe.py).
+// UIKit passes the choice to the scene delegate as the scene connects, SDL 3's own class
+// or SDL 2's app delegate; SDL starts the game after that.
+static void WatchForSafeMode(void) {
+    SEL connect=@selector(scene:willConnectToSession:options:);
+    Method method=class_getInstanceMethod(NSClassFromString(@"SDLUIKitSceneDelegate") ?: NSClassFromString(@"SDLUIKitDelegate"),connect);
+    if (!method) { fprintf(stderr,"FACTORIO_PROBE: no SDL scene delegate, safe mode unavailable\n"); return; }
+    void (*connectScene)(id,SEL,UIScene *,UISceneSession *,UISceneConnectionOptions *)=(void *)method_getImplementation(method);
+    method_setImplementation(method,imp_implementationWithBlock(^(id delegate,UIScene *scene,UISceneSession *session,UISceneConnectionOptions *options) {
+        if ([options.shortcutItem.type isEqualToString:@"safe-mode"]) safeMode=YES;
+        connectScene(delegate,connect,scene,session,options);
+    }));
+}
+
+static int StartGame(int argc, char **argv) {
+    if (!safeMode) return original(argc,argv);
+    @autoreleasepool {
+        NSMutableArray<NSString *> *arguments=[NSMutableArray array];
+        for (int i=0;i<argc;i++) [arguments addObject:@(argv[i])];
+        // Factorio has no switch to skip mods, so it gets an empty mods folder. The
+        // built-in ones (Space Age and so on) live in the game data and still load.
+        NSString *empty=[NSTemporaryDirectory() stringByAppendingPathComponent:@"safe-mode-mods"];
+        [[NSFileManager defaultManager] removeItemAtPath:empty error:NULL];
+        [[NSFileManager defaultManager] createDirectoryAtPath:empty withIntermediateDirectories:YES attributes:nil error:NULL];
+        [arguments addObjectsFromArray:@[@"--mod-directory",empty]];
+        fprintf(stderr,"FACTORIO_PROBE: safe mode, starting without mods\n");
+        argc=(int)arguments.count;
+        argv=OwnedArguments(arguments);
+    }
+    return original(argc,argv);
+}
+
 int ProbeMain(int argc, char **argv) {
-    MainFunction original = (MainFunction)((char *)_dyld_get_image_header(0) + ORIGINAL_MAIN_OFFSET);
+    original = (MainFunction)((char *)_dyld_get_image_header(0) + ORIGINAL_MAIN_OFFSET);
     bool coreTest=argc==2 && !strcmp(argv[1],"--probe-core");
     bool benchmarkTest=argc==2 && !strcmp(argv[1],"--probe-benchmark");
     if (argc==1 || coreTest || benchmarkTest) {
@@ -76,9 +118,7 @@ int ProbeMain(int argc, char **argv) {
                 [arguments addObjectsFromArray:@[@"--force-metal",@"--graphics-quality",@"medium"]];
             }
             argc=(int)arguments.count;
-            char **owned=calloc(argc+1,sizeof(char *));
-            for (int i=0;i<argc;i++) owned[i]=strdup(arguments[i].UTF8String);
-            argv=owned; // Process-lifetime storage; UIKit and the game retain argv.
+            argv=OwnedArguments(arguments);
         }
     }
     for (int i=1;i<argc;i++) {
@@ -107,10 +147,11 @@ int ProbeMain(int argc, char **argv) {
         // Portrait puts the game above a dedicated control deck (see TouchControls.m).
         setenv("SDL_IOS_ORIENTATIONS","LandscapeLeft LandscapeRight Portrait",0);
         InstallTouchControls();
+        WatchForSafeMode();
 #if FPI_SDL_MAJOR == 3
-        return run(argc,argv,original,NULL);
+        return run(argc,argv,StartGame,NULL);
 #else
-        return run(argc,argv,original);
+        return run(argc,argv,StartGame);
 #endif
     }
 }

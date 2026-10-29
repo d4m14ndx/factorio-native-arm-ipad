@@ -160,6 +160,7 @@ your device keeps working until its signing expires.
 | **Untrusted Developer** | Step 7 |
 | The app stops opening after a week | The free signing expired. Run the installer again |
 | The game doesn't fill the iPhone Duo's inner display | Build with Xcode 27.2 or later |
+| The game crashes or runs out of memory while loading mods | Swipe the app away, then long-press its icon and choose **Safe mode**. It starts once without your mods and leaves them as they were |
 | The build failed with something else | The installer prints the first errors. The full log is `reports/install-build.log` in the project folder |
 
 More: [Troubleshooting for developers](DEVELOPMENT.md#troubleshooting).
