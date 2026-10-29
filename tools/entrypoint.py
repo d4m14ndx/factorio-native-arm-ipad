@@ -55,9 +55,25 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
         expected = 817 if sdl_major == 2 else 1269
         if len(redirects) != expected:
             raise ValueError(f'SDL{sdl_major} redirect set changed: expected {expected}, got {len(redirects)}')
-    stub = (first-16*(1+len(redirects))) & ~15
+    # Steam Cloud stand-in (probe/SteamCloud.mm): the Mac build reads player-data.json,
+    # with the factorio.com login and multiplayer name, only from Steam Cloud, which the
+    # no-Steam context answers with nothing. Redirect those base methods, which only that
+    # context uses, to the shim, which serves the game's own local copy.
+    cloud = []
+    if sdl_path:
+        names = {s['name']:s for s in m.symbols() if 'library' not in s}
+        shim = {s['name'] for s in MachO(path.parent/'Frameworks/ProbeShim.dylib').symbols() if 'library' not in s}
+        string = 'ERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEE'
+        for method,replacement in (('21getCloudFileTimestamp','_FPICloudFileTimestamp'),
+                                   ('15cloudFileExists','_FPICloudFileExists'),
+                                   ('13readCloudFile','_FPIReadCloudFile')):
+            symbol = names.get('__ZNK21SteamContextInterface'+method+string)
+            if symbol and replacement in shim:
+                cloud.append((symbol,replacement,'Steam Cloud stand-in: '+method[2:]))
+    count = 1+len(redirects)+len(cloud)
+    stub = (first-16*count) & ~15
     assert stub >= 32+struct.unpack_from('<I',data,20)[0]
-    assert data[stub:stub+16*(1+len(redirects))] == bytes(16*(1+len(redirects)))
+    assert data[stub:stub+16*count] == bytes(16*count)
     text = next(p for p,name in segments if name==b'__TEXT')
     base = struct.unpack_from('<Q',data,text+24)[0]
     def trampoline(at, pointer_vm):
@@ -81,17 +97,18 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
     bss_slot = (bss_end+7)&~7
     const_slot = slot+8
     changes = []
-    for i,symbol in enumerate(redirects):
+    platform_patches = []
+    for i,(symbol,target,label) in enumerate([(s,s['name'],None) for s in redirects]+cloud):
         at = stub+16*(i+1)
         if const_slot+8 <= fileoff+filesize:
             assert data[const_slot:const_slot+8]==bytes(8)
             pointer_vm = vm+const_slot-fileoff
-            extra += binding_for(symbol['name'],seg_index,const_slot-fileoff)
+            extra += binding_for(target,seg_index,const_slot-fileoff)
             const_slot += 8
         else:
             assert bss_slot>=data_vm+data_size and bss_slot+8<=data_vm+data_vmsize, 'Insufficient zero-fill padding'
             pointer_vm = bss_slot
-            extra += binding_for(symbol['name'],data_index,bss_slot-data_vm)
+            extra += binding_for(target,data_index,bss_slot-data_vm)
             bss_slot += 8
         trampoline(at,pointer_vm)
         offset = symbol['address']-base
@@ -99,8 +116,50 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
         assert displacement % 4 == 0 and -(1<<27)<=displacement<(1<<27)
         before = data[offset:offset+4].hex()
         struct.pack_into('<I',data,offset,0x14000000|((displacement>>2)&0x3ffffff))
-        changes.append(dict(name=symbol['name'],offset=offset,original_bytes=before,trampoline=at))
-    platform_patches = []
+        if label:
+            platform_patches.append(dict(name=label,offset=offset,original_bytes=before))
+        else:
+            changes.append(dict(name=symbol['name'],offset=offset,original_bytes=before,trampoline=at))
+    if sdl_path:
+        # factorio.com logins: the Mac build's curl names /etc/ssl/cert.pem as
+        # its default CA file, which the iOS sandbox won't let the app read,
+        # and its Secure Transport backend then fails rather than use the
+        # system's trusted roots. Clear that default, as in a curl built
+        # without one, so iOS verifies the server itself.
+        def string_at(at):
+            adrp, add = struct.unpack_from('<II',data,at)
+            page = ((base+at)&~0xfff)+((((adrp>>5)&0x7ffff)<<2|(adrp>>29)&3)<<12)
+            return page+((add>>10)&0xfff)-base
+        def call_target(at):
+            offset = struct.unpack_from('<I',data,at)[0]&0x3ffffff
+            return base+at+4*(offset-(1<<26) if offset&(1<<25) else offset)
+        init = next(s for s in m.symbols() if s['name']=='_Curl_init_userdefined')
+        setstropt = next(s for s in m.symbols() if s['name']=='_Curl_setstropt')['address']
+        cert = b'/etc/ssl/cert.pem\0'
+        sites = [at+4 for at in range(init['address']-base,init['address']-base+0x400,4)
+                 if struct.unpack_from('<I',data,at)[0]&0x9f00001f == 0x90000001
+                 and struct.unpack_from('<I',data,at+4)[0]&0xffc003ff == 0x91000021
+                 and data[string_at(at):string_at(at)+len(cert)] == cert
+                 and call_target(at+8) == setstropt]
+        if len(sites) == 2:
+            for at in sites:
+                platform_patches.append(dict(name='no default CA file for curl',offset=at,original_bytes=data[at:at+4].hex()))
+                struct.pack_into('<I',data,at,0xd2800001) # mov x1, #0
+        else:
+            print('Note: unrecognised Curl_init_userdefined; factorio.com login may fail on iOS')
+        # If iOS rejects the server anyway, the game switches to a "built-in
+        # certificate bundle": the first system CA file that exists, which is
+        # that unreadable one again. Branch straight to its fallback instead,
+        # the cacert.pem shipped in the game data.
+        pick = next(s for s in m.symbols() if s['name']=='__ZN10CurlHandle20pickCertFileLocationEv')
+        at = pick['address']-base+0x30
+        message = b'Failed to find the system certificate authority file, using shipped file\0'
+        text = string_at(at+0x144)
+        if struct.unpack_from('<I',data,at)[0] == 0x14000006 and data[text:text+len(message)] == message:
+            struct.pack_into('<I',data,at,0x14000000|(0x13c>>2))
+            platform_patches.append(dict(name='use the shipped CA certificate file',offset=at,original_bytes='06000014'))
+        else:
+            print('Note: unrecognised CurlHandle::pickCertFileLocation; factorio.com login may fail on iOS')
     if sdl_path and sdl_major == 2:
         # This block reaches into the macOS SDL_VideoDisplay::driverdata solely
         # to append a CGDirectDisplayID to a log message. UIKit has different

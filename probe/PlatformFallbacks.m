@@ -25,6 +25,27 @@ int SteamInternal_SteamAPI_Init(const char *interface_versions, char (*out_error
     return 2;
 }
 
+// Without a Steam client every interface accessor yields null, as on a Mac
+// without Steam; the game checks for that (its login falls back to a
+// factorio.com account). Accessors pass a { init function, counter,
+// interface } context and read the interface through the returned pointer.
+void *SteamInternal_ContextInit(void *context_init_data) {
+    void **context = context_init_data;
+    context[2] = NULL;
+    return &context[2];
+}
+
+int32_t SteamAPI_GetHSteamUser(void) { return 0; }
+void *SteamInternal_FindOrCreateUserInterface(int32_t user, const char *version) { return NULL; }
+
+// Nothing is registered, so nothing is ever delivered.
+void SteamAPI_RunCallbacks(void) {}
+void SteamAPI_Shutdown(void) {}
+void SteamAPI_RegisterCallback(void *callback, int id) {}
+void SteamAPI_UnregisterCallback(void *callback) {}
+void SteamAPI_RegisterCallResult(void *callback, uint64_t call) {}
+void SteamAPI_UnregisterCallResult(void *callback, uint64_t call) {}
+
 // OpenCL extension cl_khr_icd: no OpenCL platforms are available on iPadOS.
 int32_t clGetPlatformIDs(uint32_t capacity, void **platforms, uint32_t *count) {
     if (count) *count = 0;

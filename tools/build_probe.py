@@ -47,9 +47,11 @@ def build_shim(app, uikit=False, sdk='iphonesimulator', sdl_major=2):
     # nan is provided by libSystem on iOS; macOS happens to bind it to CoreServices.
     missing.discard('_nan')
     missing.discard('_clGetPlatformIDs')
-    missing.discard('_SteamAPI_RestartAppIfNecessary')
-    missing.discard('_SteamAPI_Init')
-    missing.discard('_SteamInternal_SteamAPI_Init')
+    for steam in ('RestartAppIfNecessary', 'Init', 'GetHSteamUser', 'RunCallbacks', 'Shutdown',
+                  'RegisterCallback', 'UnregisterCallback', 'RegisterCallResult', 'UnregisterCallResult'):
+        missing.discard('_SteamAPI_'+steam)
+    for steam in ('SteamAPI_Init', 'ContextInit', 'FindOrCreateUserInterface'):
+        missing.discard('_SteamInternal_'+steam)
     classes = sorted({s.split('$_')[1] for s in missing if s.startswith('_OBJC_')})
     classes = [c for c in classes if c not in ('NSColorSpace','NSBitmapImageRep')]
     lines = ['#import <Foundation/Foundation.h>', '#include <stdio.h>', '#include <stdlib.h>', '#include <execinfo.h>',
@@ -81,7 +83,7 @@ def build_shim(app, uikit=False, sdk='iphonesimulator', sdl_major=2):
     command = ['xcrun','--sdk',sdk,'clang','-target',target_triple,
                '-Werror=property-attribute-mismatch','-Werror=objc-property-synthesis',
                '-isysroot',sdk_root,'-dynamiclib','-fobjc-arc',str(source),str(ROOT/'probe/PlatformFallbacks.m'),
-               str(ROOT/'probe/BitmapCompat.m'),'-framework','ImageIO',
+               str(ROOT/'probe/BitmapCompat.m'),str(ROOT/'probe/SteamCloud.mm'),'-lc++','-framework','ImageIO',
                '-o',str(library),'-install_name','@executable_path/Frameworks/ProbeShim.dylib',
                '-Wl,-reexport-lSystem','-Wl,-reexport-lobjc','-Wl,-reexport-lresolv']
     if uikit:
