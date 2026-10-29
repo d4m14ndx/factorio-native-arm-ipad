@@ -9,7 +9,7 @@ specific to the Duo.
 |---|---|
 | Xcode | **27.2 or later** |
 | iOS on the Duo | **27.2 recommended**. 27.1 works, but its AssistiveTouch bug needs workarounds for trackpad play ([Controls](CONTROLS.md#trackpad-or-mouse-on-iphone)) |
-| Factorio | **2.1.23, build 87750**, macOS Steam, executable SHA-256 `42218e9676f36687282800e5b6336b049c0f0e45f0f71eb20f90c49ccdec4359` |
+| Factorio | **2.1.24, build 87808**, or 2.1.23, build 87750, macOS Steam; executable hashes in [Development](DEVELOPMENT.md#supported-game-executables) |
 
 A newer Steam version of Factorio isn't automatically compatible: setup rejects
 any other executable, because the binary patches depend on its exact layout.
@@ -20,6 +20,8 @@ On a physical iPhone Duo, Factorio 2.1.23 with Space Age loads its main menu and
 saved games and plays with the touch controls, a Bluetooth keyboard, and a
 trackpad through AssistiveTouch (iOS 27.1 and 27.2 RC2). A 120-update Space Age
 simulation produced the same checksum (`4032494708`) as the original Mac game.
+2.1.24 also reaches the Space Age main menu, and its probe matches the Mac
+(`3668795911`).
 Fold/unfold while running, long sessions, large factories, multiplayer and
 controller play are untested.
 

@@ -80,6 +80,17 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
     bss_end = max(s['address']+s['size'] for s in m.sections if s['segment']=='__DATA')
     bss_slot = (bss_end+7)&~7
     const_slot = slot+8
+    # 2.1.24 has fewer spare pointer slots than SDL redirects. The end of __DATA is
+    # zero-fill, so grow it by whole pages and move __LINKEDIT up to make room;
+    # nothing in the game refers to __LINKEDIT by address.
+    short = bss_slot+8*(len(redirects)-(fileoff+filesize-const_slot)//8)-(data_vm+data_vmsize)
+    grown = (short+16383)&~16383 if short > 0 else 0
+    if grown:
+        linkedit = next(p for p,name in segments if name==b'__LINKEDIT')
+        assert segments[-1][1]==b'__LINKEDIT' and struct.unpack_from('<Q',data,linkedit+24)[0]==data_vm+data_vmsize
+        data_vmsize += grown
+        struct.pack_into('<Q',data,data_segment+32,data_vmsize)
+        struct.pack_into('<Q',data,linkedit+24,data_vm+data_vmsize)
     changes = []
     for i,symbol in enumerate(redirects):
         at = stub+16*(i+1)
@@ -132,4 +143,4 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
     original = struct.unpack_from('<Q',data,main+8)[0]
     struct.pack_into('<Q',data,main+8,stub)
     path.write_bytes(data)
-    return dict(original_entry_offset=original,entry_stub_offset=stub,pointer_slot_offset=slot,bind_stream_offset=newoff,sdl_redirects=changes,platform_patches=platform_patches)
+    return dict(original_entry_offset=original,entry_stub_offset=stub,pointer_slot_offset=slot,bind_stream_offset=newoff,data_zero_fill_added=grown,sdl_redirects=changes,platform_patches=platform_patches)

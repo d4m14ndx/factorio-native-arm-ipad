@@ -14,7 +14,9 @@ from config import validate_source
 import config
 from macho import MachO
 
-LOCAL_SHA256 = '42218e9676f36687282800e5b6336b049c0f0e45f0f71eb20f90c49ccdec4359'
+# The SDL 3 executables: 2.1.23 and 2.1.24.
+LOCAL_SHA256 = {'42218e9676f36687282800e5b6336b049c0f0e45f0f71eb20f90c49ccdec4359',
+                '991c1182742f60cde97be2a412106670f73ba483fd1715a95e687b73c8b5250d'}
 
 
 class SourceValidationTests(unittest.TestCase):
@@ -33,7 +35,7 @@ class SourceValidationTests(unittest.TestCase):
             digest = validate_source(Path(os.environ['FACTORIO_TEST_APP']))
         except ValueError as error:
             self.fail(f'Audited experimental executable was rejected: {error}')
-        self.assertEqual(digest, LOCAL_SHA256)
+        self.assertIn(digest, LOCAL_SHA256)
 
 
 @unittest.skipUnless(os.environ.get('FACTORIO_TEST_APP'), 'requires an owned local game')

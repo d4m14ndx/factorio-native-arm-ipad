@@ -9,7 +9,9 @@ libraries and the compatibility layer.
 
 Before signing, `tools/entrypoint.py` inserts static ARM64 trampolines into
 verified unused Mach-O space. Factorio 2.0.77 redirects 817 public SDL entry
-points to SDL 2.30.9. Factorio 2.1.23 redirects 1,269 to SDL 3.4.14. Each SDL
+points to SDL 2.30.9. Factorio 2.1.23 and 2.1.24 redirect 1,269 to SDL 3.4.14.
+2.1.24's spare data space holds fewer pointers than that, so the build grows the
+zero-fill end of `__DATA` by a page and moves `__LINKEDIT` up. Each SDL
 release is built separately for iOS from a hash-checked source archive. The new
 entry point runs through UIKit and reaches the preserved original `main`. There
 is no JIT and no runtime modification of executable memory pages.
@@ -60,7 +62,7 @@ implemented on iOS.
 ## Additional adaptations
 
 A small patch skips the macOS-specific display-ID suffix in Factorio 2.0.77's
-display logging. Factorio 2.1.23 no longer needs that patch. The remaining game
+display logging. Factorio 2.1 no longer needs that patch. The remaining game
 engine and its Metal renderer are preserved. On the tested
 M1 iPad, the compatibility layer implements the missing
 `isDepth24Stencil8PixelFormatSupported` method by returning `NO`, causing the

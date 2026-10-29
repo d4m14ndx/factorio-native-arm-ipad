@@ -14,17 +14,19 @@ DEFAULT_BUNDLE_ID = 'local.factorio.loaderprobe'
 SUPPORTED_SHA256 = '00b014d78df07e05ab1cee853904c8f7b3814ca652c043461a9d49fbad46cdf6'
 EXPERIMENTAL_SHA256 = '90e2ebfdb5fd8b3966915f704a0ae99177c2af64ed9267c634ced42bff36d820'
 FACTORIO_21_SHA256 = '42218e9676f36687282800e5b6336b049c0f0e45f0f71eb20f90c49ccdec4359'
+FACTORIO_2124_SHA256 = '991c1182742f60cde97be2a412106670f73ba483fd1715a95e687b73c8b5250d'
 SUPPORTED_SOURCES = {
     SUPPORTED_SHA256: 'upstream-tested',
     EXPERIMENTAL_SHA256: 'experimental; device testing required',
     FACTORIO_21_SHA256: 'Factorio 2.1.23 Steam; experimental iPhone port',
+    FACTORIO_2124_SHA256: 'Factorio 2.1.24 Steam; experimental iPhone port',
 }
 SDL_MAJOR_BY_SHA256 = {SUPPORTED_SHA256: 2, EXPERIMENTAL_SHA256: 2,
-                       FACTORIO_21_SHA256: 3}
+                       FACTORIO_21_SHA256: 3, FACTORIO_2124_SHA256: 3}
 
 
 def validate_patch_layout(macho, sdl_major=2):
-    """Check the statically inspected 2.0.77 or 2.1.23 layout without changes.
+    """Check the statically inspected 2.0.77, 2.1.23 or 2.1.24 layout without changes.
 
     This supplements the exact-file allowlist; it does not establish runtime
     compatibility or permit arbitrary binaries with similar instructions.
@@ -91,7 +93,12 @@ def validate_patch_layout(macho, sdl_major=2):
     bss_slot = (max(s['address'] + s['size'] for s in macho.sections if s['segment'] == '__DATA') + 7) & ~7
     require(bss_slot >= data_vm + data_size, 'pointer padding is not zero-fill')
     slots = (fileoff + filesize - slot) // 8 + (data_vm + data_vmsize - bss_slot) // 8
-    require(slots >= slots_needed, 'insufficient pointer padding')
+    # Short of slots (2.1.24), the build grows that zero-fill into where __LINKEDIT starts.
+    linkedit = segments.get(b'__LINKEDIT')
+    require(slots >= slots_needed or
+            (max(segments, key=segments.get) == b'__LINKEDIT' and
+             struct.unpack_from('<Q', data, linkedit + 24)[0] == data_vm + data_vmsize),
+            'insufficient pointer padding')
 
 def validate_source(app):
     import hashlib
@@ -101,12 +108,12 @@ def validate_source(app):
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
     if digest not in SUPPORTED_SOURCES:
         raise ValueError(f'Unsupported Factorio executable SHA-256: {digest}\n'
-                         'Only explicitly audited Factorio 2.0.77 and 2.1.23 Steam executables are accepted.\n'
+                         'Only explicitly audited Factorio 2.0.77, 2.1.23 and 2.1.24 Steam executables are accepted.\n'
                          'Do not bypass this check: a new executable requires a new analysis.')
     for relative in ('Contents/Info.plist', 'Contents/data/base/info.json', 'Contents/data/core/info.json'):
         if not (app / relative).is_file():
             raise ValueError(f'Incomplete Factorio app: missing {relative}')
-    if digest in (EXPERIMENTAL_SHA256, FACTORIO_21_SHA256):
+    if digest in (EXPERIMENTAL_SHA256, FACTORIO_21_SHA256, FACTORIO_2124_SHA256):
         from macho import MachO
         validate_patch_layout(MachO(binary), SDL_MAJOR_BY_SHA256[digest])
     return digest

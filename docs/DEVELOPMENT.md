@@ -26,7 +26,7 @@ under **Xcode → Settings → Locations → Command Line Tools**, or set
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` for the session.
 
 The first build needs an internet connection to download PyYAML, SDL, and, if
-necessary, Apple signing profiles. SDL 3.4.14 (for Factorio 2.1.23) or SDL 2.30.9
+necessary, Apple signing profiles. SDL 3.4.14 (for Factorio 2.1) or SDL 2.30.9
 (for 2.0.77) comes from the official SDL repository and is checked against a
 pinned SHA-256 hash.
 
@@ -39,7 +39,8 @@ No dSYM is needed; the required symbols are read from the verified executable.
 
 | Version | SHA-256 | Status |
 |---|---|---|
-| **2.1.23**, build 87750, Steam | `42218e9676f36687282800e5b6336b049c0f0e45f0f71eb20f90c49ccdec4359` | iPhone Duo and iPad. SDL 3.4.14, 1,269 SDL redirects. 120-update Space Age probe: `4032494708` on Mac, Duo simulator and physical Duo |
+| **2.1.24**, build 87808, Steam | `991c1182742f60cde97be2a412106670f73ba483fd1715a95e687b73c8b5250d` | iPhone Duo. SDL 3.4.14, 1,269 SDL redirects; their pointers don't fit the spare space, so `__DATA` grows by a page. 120-update Space Age probe: `3668795911` on Mac and physical Duo |
+| 2.1.23, build 87750, Steam | `42218e9676f36687282800e5b6336b049c0f0e45f0f71eb20f90c49ccdec4359` | iPhone Duo and iPad. SDL 3.4.14, 1,269 SDL redirects. 120-update Space Age probe: `4032494708` on Mac, Duo simulator and physical Duo |
 | 2.0.77, build 84539 | `00b014d78df07e05ab1cee853904c8f7b3814ca652c043461a9d49fbad46cdf6` | Upstream-tested on iPad. SDL 2.30.9, 817 SDL redirects. Base-game probe: `2892897386` |
 | 2.0.77, build 84539, Steam | `90e2ebfdb5fd8b3966915f704a0ae99177c2af64ed9267c634ced42bff36d820` | Experimental. Built with Xcode 27 and rendered the Space Age main menu on an M1 iPad Pro (iPadOS 27); Space Age probe: `2376201887` |
 
@@ -201,7 +202,8 @@ the same mods, explicitly compare against that native baseline:
   --benchmark-checksum 2376201887
 ```
 
-For 2.1.23 Space Age, use `--benchmark-checksum 4032494708` instead. The default
+For 2.1.23 Space Age, use `--benchmark-checksum 4032494708` instead, or
+`3668795911` for 2.1.24. The default
 checksum remains the upstream 2.0.77 base-game value. A matching small
 simulation does not establish graphical or full Space Age gameplay compatibility.
 The local iPad run on October 7, 2026 matched `2376201887`, and a separate
