@@ -4,7 +4,28 @@ No runtime executable-memory writes. The original game entry remains intact.
 This is intentionally limited to the audited classic dyld-info Mach-O layout.
 """
 import struct
-from macho import MachO
+from macho import MachO, cstring
+
+def stub_address(m, name):
+    """Address of the __stubs entry through which the game calls import name."""
+    data = m.data
+    symtab = next(p for c,p,n in m.commands if c == 2)
+    symoff, _, stroff, _ = struct.unpack_from('<IIII', data, symtab+8)
+    indirect = struct.unpack_from('<I', data, next(p for c,p,n in m.commands if c == 0xb)+56)[0]
+    for c, p, n in m.commands:
+        if c != 0x19:
+            continue
+        for j in range(struct.unpack_from('<I', data, p+64)[0]):
+            sp = p+72+80*j
+            if data[sp:sp+16].rstrip(b'\0') != b'__stubs':
+                continue
+            address, size = struct.unpack_from('<QQ', data, sp+32)
+            first, stride = struct.unpack_from('<II', data, sp+68)
+            for i in range(size//stride):
+                index = struct.unpack_from('<I', data, indirect+4*(first+i))[0]
+                if index < 0x40000000 and cstring(data, stroff+struct.unpack_from('<I', data, symoff+16*index)[0]) == name:
+                    return address+i*stride
+    return None
 
 def uleb(value):
     out = bytearray()
@@ -101,6 +122,25 @@ def inject_entry(path, sdl_path=None, simulator_metal=False, sdl_major=2):
         struct.pack_into('<I',data,offset,0x14000000|((displacement>>2)&0x3ffffff))
         changes.append(dict(name=symbol['name'],offset=offset,original_bytes=before,trampoline=at))
     platform_patches = []
+    if sdl_path:
+        # Factorio restarts itself with execv, after syncing mods for example.
+        # iOS can't exec, so the game aborted. Quit instead, with _exit as exec
+        # would (no static destructors after teardown); the player reopens it.
+        def call_target(at):
+            offset = struct.unpack_from('<I',data,at)[0]&0x3ffffff
+            return base+at+4*(offset-(1<<26) if offset&(1<<25) else offset)
+        restart = next(s for s in m.symbols() if s['name']=='__ZN10AppManager10restartAppEbNSt3__16vectorINS0_12basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEENS5_IS7_EEEEb')
+        execv, exit_stub = stub_address(m,'_execv'), stub_address(m,'__exit')
+        calls = [at for at in range(restart['address']-base,restart['address']-base+0x800,4)
+                 if struct.unpack_from('<I',data,at)[0]>>26 == 0b100101 and call_target(at) == execv]
+        if len(calls) == 1 and exit_stub:
+            at = calls[0]
+            for offset in (at-4, at):
+                platform_patches.append(dict(name='quit instead of restarting, which iOS cannot do',offset=offset,original_bytes=data[offset:offset+4].hex()))
+            struct.pack_into('<I',data,at-4,0x52800000) # mov w0, #0
+            struct.pack_into('<I',data,at,0x94000000|(((exit_stub-base-at)>>2)&0x3ffffff)) # bl _exit
+        else:
+            print('Note: unrecognised AppManager::restartApp; restarting will abort on iOS')
     if sdl_path and sdl_major == 2:
         # This block reaches into the macOS SDL_VideoDisplay::driverdata solely
         # to append a CGDirectDisplayID to a log message. UIKit has different
